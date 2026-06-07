@@ -26,7 +26,7 @@ from evalscope.api.benchmark import BenchmarkMeta
 from evalscope.api.dataset import Sample
 from evalscope.api.registry import register_benchmark
 from evalscope.constants import Tags
-from evalscope.benchmarks.aa_lcr.aa_lcr_adapter import AALCRAdapter
+from evalscope.benchmarks.aa_lcr.aa_lcr_adapter import AALCRAdapter, PROMPT_TEMPLATE
 from evalscope.utils.logger import get_logger
 
 from evalscope_ext.pruning.correlation_stratified import (
@@ -57,6 +57,7 @@ DEFAULT_EVALS_DIR = os.path.abspath(os.path.join(
         few_shot_num=0,
         train_split=None,
         eval_split='test',
+        prompt_template=PROMPT_TEMPLATE,
         extra_params={
             'pruning_strategy': {
                 'type': 'str',

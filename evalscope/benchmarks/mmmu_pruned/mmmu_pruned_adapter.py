@@ -31,7 +31,7 @@ from evalscope.api.benchmark import BenchmarkMeta
 from evalscope.api.dataset import Sample
 from evalscope.api.registry import register_benchmark
 from evalscope.constants import Tags
-from evalscope.benchmarks.mmmu.mmmu_adapter import MMMUAdapter, SUBSET_LIST
+from evalscope.benchmarks.mmmu.mmmu_adapter import MMMUAdapter, SUBSET_LIST, OPEN_PROMPT
 from evalscope.utils.logger import get_logger
 
 from evalscope_ext.pruning.mmmu_pruner import (
@@ -60,6 +60,7 @@ DEFAULT_EVALS_DIR = os.path.abspath(os.path.join(
         ),
         metric_list=['acc'],
         eval_split='validation',
+        prompt_template=OPEN_PROMPT,
         extra_params={
             'prune_ratio': {
                 'type': 'float',

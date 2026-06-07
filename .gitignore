@@ -176,3 +176,5 @@ results_full/
 results_pruned/
 test_results/
 mmmu_probe_set.json
+results_pruned_final/
+results_aalcr_pruned/
