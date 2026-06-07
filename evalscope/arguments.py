@@ -87,6 +87,7 @@ def add_argument(parser: argparse.ArgumentParser):
     parser.add_argument('--rerun-review', action='store_true', default=False, help='When --use-cache is set, force re-running the review/scoring step (deletes existing reviews cache) while still reusing prediction cache.')  # noqa: E501
     parser.add_argument('--work-dir', type=str, help='The root cache dir.')
     parser.add_argument('--no-timestamp', action='store_true', default=False, help='Do not add timestamp to work_dir to avoid overwriting previous results.')  # noqa: E501
+    parser.add_argument('--output', type=str, default=None, help='Output directory (alias for --work-dir with timestamp disabled).')
     parser.add_argument('--enable-progress-tracker', action='store_true', default=False, help='Enable progress tracker.')
 
     # Debug and runtime mode arguments

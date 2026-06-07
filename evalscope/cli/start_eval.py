@@ -29,4 +29,9 @@ class EvalCMD(CLICommand):
     def execute(self):
         from evalscope.run import run_task
 
+        if getattr(self.args, 'output', None) is not None:
+            self.args.work_dir = self.args.output
+            self.args.no_timestamp = True
+            del self.args.output
+
         run_task(self.args)

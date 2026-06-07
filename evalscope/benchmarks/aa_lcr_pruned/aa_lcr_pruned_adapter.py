@@ -119,8 +119,10 @@ class AALCRPrunedAdapter(AALCRAdapter):
         Compute which sample indices to keep using correlation-stratified
         pruning with judge noise correction.
         """
+        strategy = self.extra_params.get('pruning_strategy', 'correlation_stratified')
         prune_ratio = float(self.extra_params.get('prune_ratio', 0.2))
         run_validation = bool(self.extra_params.get('run_validation', False))
+        logger.info(f'AA-LCR pruning strategy: {strategy}')
 
         evals_dir = self._get_evals_dir()
         predictions_dir = os.path.join(evals_dir, 'Part 1', 'predictions')

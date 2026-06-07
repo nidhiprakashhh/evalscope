@@ -55,6 +55,11 @@ DEFAULT_EVALS_DIR = os.path.abspath(os.path.join(
         metric_list=['acc'],
         aggregation='mean_and_pass_at_k',
         eval_split='test',
+        prompt_template=(
+            '### Question:\n{question_content}\n\n'
+            '{format_prompt} ### Answer: (use the provided format with backticks)\n\n'
+        ),
+        review_timeout=6,
         extra_params={
             'pruning_strategy': {
                 'type': 'str',
@@ -108,8 +113,10 @@ class LiveCodeBenchPrunedAdapter(LiveCodeBenchAdapter):
         Compute which sample indices to keep.
         Called once on first sample_filter invocation.
         """
+        strategy = self.extra_params.get('pruning_strategy', 'correlation_stratified')
         prune_ratio = float(self.extra_params.get('prune_ratio', 0.1))
         run_validation = bool(self.extra_params.get('run_validation', False))
+        logger.info(f'LCB pruning strategy: {strategy}')
 
         evals_dir = self._get_evals_dir()
         predictions_dir = os.path.join(evals_dir, 'Part 1', 'predictions')

@@ -171,3 +171,8 @@ node_modules/
 evalscope/web/dist/
 evalscope/web/.vite/
 ragas_mini_testset_score.json
+# Generated eval artifacts
+results_full/
+results_pruned/
+test_results/
+mmmu_probe_set.json

@@ -78,95 +78,87 @@ def _find_result_files(results_dir: str) -> List[Path]:
 
 def _load_evalscope_results(results_dir: str) -> Optional[BenchmarkResult]:
     """
-    Load evalscope output and extract per-sample scores.
+    Load evalscope output and extract per-model scores.
 
-    evalscope writes results in a structured format under the output dir.
-    We parse whatever JSON files exist to extract model scores.
+    evalscope writes:
+      reports/{model_name}/{benchmark}.json  — aggregated score per model
+      reviews/{model_name}/*.jsonl           — per-sample scores
+
+    Model name is derived from subdirectory name since review
+    JSONL lines carry no model field.
     """
     results_path = Path(results_dir)
     if not results_path.exists():
         return None
 
-    # Look for summary/report files first
-    for summary_name in ['summary.json', 'report.json', 'results.json']:
-        summary_path = results_path / summary_name
-        if summary_path.exists():
-            with open(summary_path) as f:
-                data = json.load(f)
-            return _parse_summary(data, results_path.name)
+    reports_dir = results_path / 'reports'
+    reviews_dir = results_path / 'reviews'
 
-    # Fall back to scanning all JSON files
-    all_scores: Dict[str, List[float]] = {}
+    model_scores: Dict[str, float] = {}
+    per_sample_scores: Dict[str, List[float]] = {}
     benchmark_name = results_path.name
+    total_samples = 0
 
-    for json_file in results_path.rglob('*.json'):
-        try:
-            with open(json_file) as f:
-                data = json.load(f)
-            _extract_scores_from_json(data, all_scores)
-        except (json.JSONDecodeError, KeyError):
-            continue
+    # Step 1: scan reports/{model_name}/*.json for overall scores
+    if reports_dir.exists():
+        for model_dir in sorted(reports_dir.iterdir()):
+            if not model_dir.is_dir():
+                continue
+            report_files = sorted(model_dir.glob('*.json'))
+            if not report_files:
+                continue
+            try:
+                with open(report_files[0]) as f:
+                    data = json.load(f)
+                model_name = data.get('model_name') or model_dir.name
+                model_scores[model_name] = float(data['score'])
+                benchmark_name = data.get('dataset_name', benchmark_name)
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue
 
-    if not all_scores:
+    # Step 2: scan reviews/{model_name}/*.jsonl for per-sample scores
+    if reviews_dir.exists():
+        for model_dir in sorted(reviews_dir.iterdir()):
+            if not model_dir.is_dir():
+                continue
+            model_name = model_dir.name
+            sample_scores: List[float] = []
+            for jsonl_file in sorted(model_dir.glob('*.jsonl')):
+                try:
+                    with open(jsonl_file) as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            row = json.loads(line)
+                            sv = (
+                                row.get('sample_score', {})
+                                   .get('score', {})
+                                   .get('value', {})
+                            )
+                            score_val = sv.get('pass', sv.get('acc'))
+                            if score_val is not None:
+                                sample_scores.append(float(score_val))
+                except (json.JSONDecodeError, KeyError):
+                    continue
+            if sample_scores:
+                per_sample_scores[model_name] = sample_scores
+                total_samples = max(total_samples, len(sample_scores))
+                # fill model_scores from JSONL mean if reports/ was absent
+                if model_name not in model_scores:
+                    model_scores[model_name] = (
+                        sum(sample_scores) / len(sample_scores)
+                    )
+
+    if not model_scores:
         return None
-
-    model_scores = {
-        model: sum(scores) / len(scores)
-        for model, scores in all_scores.items()
-        if scores
-    }
-
-    total_samples = max(len(s) for s in all_scores.values()) if all_scores else 0
-
-    return BenchmarkResult(
-        benchmark_name=benchmark_name,
-        model_scores=model_scores,
-        per_sample_scores=all_scores,
-        n_samples=total_samples,
-    )
-
-
-def _parse_summary(data: dict, benchmark_name: str) -> BenchmarkResult:
-    """Parse evalscope summary JSON format."""
-    model_scores = {}
-    per_sample_scores = {}
-
-    if 'results' in data:
-        for model, result in data['results'].items():
-            if isinstance(result, dict):
-                score = result.get('acc', result.get('pass', result.get('score', 0)))
-                model_scores[model] = float(score)
-            elif isinstance(result, (int, float)):
-                model_scores[model] = float(result)
-
-    elif 'model' in data and 'score' in data:
-        model_scores[data['model']] = float(data['score'])
-
-    n_samples = data.get('n_samples', data.get('total', 0))
 
     return BenchmarkResult(
         benchmark_name=benchmark_name,
         model_scores=model_scores,
         per_sample_scores=per_sample_scores,
-        n_samples=int(n_samples),
+        n_samples=total_samples,
     )
-
-
-def _extract_scores_from_json(data: dict, scores: Dict[str, List[float]]) -> None:
-    """Extract per-sample scores from a JSON object."""
-    model = data.get('model', 'unknown')
-    if model not in scores:
-        scores[model] = []
-
-    score_val = None
-    if 'sample_score' in data:
-        sv = data['sample_score'].get('score', {}).get('value', {})
-        score_val = sv.get('pass', sv.get('acc'))
-    elif 'score' in data:
-        score_val = data['score']
-
-    if score_val is not None:
-        scores[model].append(float(score_val))
 
 
 def bootstrap_confidence_interval(
