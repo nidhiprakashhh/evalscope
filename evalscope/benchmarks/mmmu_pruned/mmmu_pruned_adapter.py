@@ -34,17 +34,13 @@ from evalscope.constants import Tags
 from evalscope.benchmarks.mmmu.mmmu_adapter import MMMUAdapter, SUBSET_LIST, OPEN_PROMPT
 from evalscope.utils.logger import get_logger
 
+from evalscope_ext.pruning.universal_pruned_adapter import UniversalPrunedAdapterMixin
 from evalscope_ext.pruning.mmmu_pruner import (
     MmmuPruner,
     load_mmmu_samples,
 )
 
 logger = get_logger()
-
-DEFAULT_EVALS_DIR = os.path.abspath(os.path.join(
-    os.path.dirname(__file__),
-    '..', '..', '..', '..', '..', 'Evals'
-))
 
 
 @register_benchmark(
@@ -83,37 +79,36 @@ DEFAULT_EVALS_DIR = os.path.abspath(os.path.join(
         },
     )
 )
-class MMMUPrunedAdapter(MMMUAdapter):
+class MMMUPrunedAdapter(UniversalPrunedAdapterMixin, MMMUAdapter):
     """
     Pruned variant of MMMUAdapter.
 
-    Uses topic_difficulty and img_type metadata for stratification
-    since only one model is available in the reference data.
+    Inherits sample_filter / get_pruning_stats from PrunedAdapterMixin.
+    Overrides record_to_sample to use a counter-based index (MMMU records
+    lack a stable per-row index field), and _get_pruner_index accordingly.
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._pruned_indices: Optional[set] = None
-        self._pruning_stats: Optional[Dict] = None
-        self._pruning_attempted: bool = False
         self._sample_counter: int = 0
 
-    def _get_evals_dir(self) -> str:
-        evals_dir = (
-            self.extra_params.get('evals_dir')
-            or os.environ.get('EVALS_DIR')
-            or DEFAULT_EVALS_DIR
-        )
-        return os.path.abspath(evals_dir)
+    def _get_pruner_index(self, record: Dict[str, Any]) -> int:
+        """MMMU records have no stable index — use a sequential counter instead."""
+        idx = self._sample_counter
+        self._sample_counter += 1
+        if idx <= 3 or idx % 30 == 0:
+            logger.debug(f'MMMU adapter sample counter: {idx}')
+        return idx
 
     def _compute_pruned_indices(self) -> Optional[set]:
         """
-        Compute which MMMU sample indices to keep.
-        Uses difficulty stratification + visual complexity scoring.
+        Load MMMU per-sample scores from Evals/MMMU/ and select the most
+        encoder-stressful samples using difficulty stratification and
+        visual complexity scoring.
         """
-        prune_ratio = float(self.extra_params.get('prune_ratio', 0.2))
+        prune_ratio = float(self._get_dataset_param('prune_ratio', 0.2))
         encoder_probe_mode = bool(
-            self.extra_params.get('encoder_probe_mode', False)
+            self._get_dataset_param('encoder_probe_mode', False)
         )
 
         evals_dir = self._get_evals_dir()
@@ -161,36 +156,3 @@ class MMMUPrunedAdapter(MMMUAdapter):
         except Exception as e:
             logger.error(f'MMMU pruning failed: {e}. Using full benchmark.')
             return None
-
-    def record_to_sample(self, record: Dict[str, Any]) -> Sample:
-        """Inject record index into metadata for sample_filter."""
-        sample = super().record_to_sample(record)
-        if sample.metadata is None:
-            sample.metadata = {}
-        sample.metadata['_pruner_index'] = self._sample_counter
-        self._sample_counter += 1
-        if self._sample_counter <= 3 or self._sample_counter % 30 == 0:
-            logger.debug(
-                f'MMMU adapter sample counter: {self._sample_counter - 1} '
-                f'subject={sample.metadata.get("subfield", "unknown")}'
-            )
-        return sample
-
-    def sample_filter(self, sample: Sample) -> bool:
-        """Filter to pruned indices only."""
-        if not self._pruning_attempted:
-            self._pruning_attempted = True
-            self._pruned_indices = self._compute_pruned_indices()
-
-        if self._pruned_indices is None:
-            return True
-
-        idx = sample.metadata.get('_pruner_index') if sample.metadata else None
-        if idx is None:
-            return True
-
-        return int(idx) in self._pruned_indices
-
-    def get_pruning_stats(self) -> Optional[Dict]:
-        """Return pruning statistics for reporting."""
-        return self._pruning_stats

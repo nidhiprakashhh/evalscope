@@ -16,10 +16,9 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from evalscope.api.benchmark import BenchmarkMeta
-from evalscope.api.dataset import Sample
 from evalscope.api.registry import register_benchmark
 from evalscope.constants import Tags
 from evalscope.benchmarks.live_code_bench.live_code_bench_adapter import (
@@ -27,6 +26,7 @@ from evalscope.benchmarks.live_code_bench.live_code_bench_adapter import (
 )
 from evalscope.utils.logger import get_logger
 
+from evalscope_ext.pruning.universal_pruned_adapter import UniversalPrunedAdapterMixin
 from evalscope_ext.pruning.correlation_stratified import (
     CorrelationStratifiedPruner,
     load_scores_from_jsonl,
@@ -34,12 +34,6 @@ from evalscope_ext.pruning.correlation_stratified import (
 from evalscope_ext.pruning.leave_one_out import run_leave_one_out
 
 logger = get_logger()
-
-# Default path to Evals data — override via EVALS_DIR env var
-DEFAULT_EVALS_DIR = os.path.abspath(os.path.join(
-    os.path.dirname(__file__),
-    '..', '..', '..', '..', '..', 'Evals'
-))
 
 
 @register_benchmark(
@@ -121,38 +115,23 @@ DEFAULT_EVALS_DIR = os.path.abspath(os.path.join(
         },
     )
 )
-class LiveCodeBenchPrunedAdapter(LiveCodeBenchAdapter):
+class LiveCodeBenchPrunedAdapter(UniversalPrunedAdapterMixin, LiveCodeBenchAdapter):
     """
     Pruned variant of LiveCodeBenchAdapter.
 
-    Inherits all LCB evaluation logic and overrides record_to_sample()
-    to inject the raw record index into sample metadata, then overrides
-    sample_filter() to apply correlation-stratified pruning.
+    Inherits sample_filter / record_to_sample / get_pruning_stats from
+    PrunedAdapterMixin. Only implements _compute_pruned_indices() with
+    LCB-specific data loading and pruner configuration.
     """
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._pruned_indices: Optional[set] = None
-        self._pruning_stats: Optional[Dict] = None
-        self._pruning_attempted: bool = False
-
-    def _get_evals_dir(self) -> str:
-        """Resolve path to Evals directory."""
-        evals_dir = (
-            self.extra_params.get('evals_dir')
-            or os.environ.get('EVALS_DIR')
-            or DEFAULT_EVALS_DIR
-        )
-        return os.path.abspath(evals_dir)
 
     def _compute_pruned_indices(self) -> Optional[set]:
         """
-        Compute which sample indices to keep.
-        Called once on first sample_filter invocation.
+        Load LCB per-sample scores from Evals/Part 1/ and select the
+        most discriminating subset using correlation-stratified pruning.
         """
-        strategy = self.extra_params.get('pruning_strategy', 'correlation_stratified')
-        prune_ratio = float(self.extra_params.get('prune_ratio', 0.1))
-        run_validation = bool(self.extra_params.get('run_validation', False))
+        strategy = self._get_dataset_param('pruning_strategy', 'correlation_stratified')
+        prune_ratio = float(self._get_dataset_param('prune_ratio', 0.1))
+        run_validation = bool(self._get_dataset_param('run_validation', False))
         logger.info(f'LCB pruning strategy: {strategy}')
 
         evals_dir = self._get_evals_dir()
@@ -209,35 +188,3 @@ class LiveCodeBenchPrunedAdapter(LiveCodeBenchAdapter):
         except Exception as e:
             logger.error(f'LCB pruning failed: {e}. Using full benchmark.')
             return None
-
-    def record_to_sample(self, record: Dict[str, Any]) -> Sample:
-        """Convert record to Sample, injecting index into metadata for filtering."""
-        sample = super().record_to_sample(record)
-        if sample.metadata is None:
-            sample.metadata = {}
-        sample.metadata['_pruner_index'] = record.get('index') or record.get('id')
-        return sample
-
-    def sample_filter(self, sample: Sample) -> bool:
-        """
-        Filter samples to only include pruned indices.
-
-        Called by evalscope for each sample during dataset loading.
-        Returns True to keep, False to skip.
-        """
-        if not self._pruning_attempted:
-            self._pruning_attempted = True
-            self._pruned_indices = self._compute_pruned_indices()
-
-        if self._pruned_indices is None:
-            return True
-
-        idx = sample.metadata.get('_pruner_index') if sample.metadata else None
-        if idx is None:
-            return True
-
-        return int(idx) in self._pruned_indices
-
-    def get_pruning_stats(self) -> Optional[Dict]:
-        """Return pruning statistics for reporting."""
-        return self._pruning_stats
