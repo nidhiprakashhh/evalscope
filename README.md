@@ -1,3 +1,7 @@
+> **Cerebras AI Engineer Challenge Fork** · 
+**Pinned SHA**: [`d19e73f099031e11a944d6d8234f63d552a4205a`]
+(https://github.com/nidhiprakashhh/evalscope/tree/d19e73f099031e11a944d6d8234f63d552a4205a)
+
 <p align="center">
     <br>
     <img src="docs/en/_static/images/evalscope_logo.png"/>
